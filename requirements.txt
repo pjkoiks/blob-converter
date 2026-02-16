@@ -1,0 +1,4 @@
+flask
+gunicorn
+Pillow
+opencv-python-headless

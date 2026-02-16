@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.blob
+*.bin
+blob_backup/
+.blob backup/
+BLOBS/
+images/
+.claude/
+rules/
+nul

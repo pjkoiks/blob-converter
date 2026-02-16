@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rive ASCII Blob Converter</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --border: #0f3460;
+    --accent: #e94560;
+    --accent-hover: #ff6b81;
+    --text: #eee;
+    --text-dim: #888;
+    --success: #4ecca3;
+    --mono: "Cascadia Code", "Fira Code", "Consolas", "Courier New", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+  }
+  h1 {
+    font-size: 1.6rem;
+    margin-bottom: 4px;
+    letter-spacing: 1px;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-bottom: 24px;
+  }
+  .app {
+    width: 100%;
+    max-width: 800px;
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 20px;
+  }
+  .tab {
+    flex: 1;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 0.95rem;
+    text-align: center;
+    transition: all 0.2s;
+  }
+  .tab:first-child { border-radius: 8px 0 0 8px; }
+  .tab:last-child { border-radius: 0 8px 8px 0; }
+  .tab.active {
+    background: var(--border);
+    color: var(--text);
+    border-color: var(--accent);
+  }
+  .tab:hover:not(.active) { background: #1a2a4a; }
+
+  /* Drop zone */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 20px;
+    background: var(--surface);
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: #1a2a4a;
+  }
+  .drop-zone.has-file {
+    border-color: var(--success);
+    border-style: solid;
+  }
+  .drop-zone-icon { font-size: 2.5rem; margin-bottom: 8px; }
+  .drop-zone-text { color: var(--text-dim); font-size: 0.9rem; }
+  .drop-zone-file {
+    color: var(--success);
+    font-weight: 600;
+    font-size: 1rem;
+    margin-top: 4px;
+  }
+  .drop-zone input[type="file"] { display: none; }
+
+  /* Source info bar */
+  .source-info {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    display: none;
+  }
+  .source-info.show { display: block; }
+  .source-info span { color: var(--text); font-weight: 500; }
+
+  /* Controls */
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .control-group label {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .control-group input[type="number"] {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-size: 0.95rem;
+    outline: none;
+    transition: border-color 0.2s;
+    width: 100%;
+  }
+  .control-group input:focus {
+    border-color: var(--accent);
+  }
+  .control-group input::placeholder {
+    color: #555;
+  }
+
+  /* Lock aspect ratio row */
+  .lock-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+    padding: 0 2px;
+  }
+  .lock-row label {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .lock-row input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
+  .lock-icon {
+    font-size: 0.9rem;
+  }
+
+  /* Buttons */
+  .actions {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .btn {
+    flex: 1;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover:not(:disabled) { background: #1a2a4a; }
+
+  /* Status */
+  .status {
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 0.9rem;
+    display: none;
+  }
+  .status.show { display: block; }
+  .status.info { background: #0f3460; color: #8ec5fc; }
+  .status.success { background: #1a3a2a; color: var(--success); }
+  .status.error { background: #3a1a1a; color: #ff6b6b; }
+
+  /* Preview */
+  .preview-container {
+    background: #0d0d1a;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    display: none;
+  }
+  .preview-container.show { display: block; }
+  .preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+  .preview-content {
+    padding: 8px;
+    overflow-x: auto;
+    max-height: 500px;
+    overflow-y: auto;
+  }
+  .preview-content pre {
+    font-family: var(--mono);
+    font-size: 6px;
+    line-height: 1;
+    letter-spacing: 0px;
+    color: var(--success);
+    white-space: pre;
+    margin: 0;
+  }
+
+  /* Spinner */
+  .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #fff3;
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<h1>Rive ASCII Blob Converter</h1>
+<p class="subtitle">Convert images and videos to .blob files for Rive ASCII art</p>
+
+<div class="app">
+  <!-- Mode Tabs -->
+  <div class="tabs">
+    <div class="tab active" data-mode="image" onclick="switchMode('image')">Single Image</div>
+    <div class="tab" data-mode="video" onclick="switchMode('video')">Video / Animation</div>
+  </div>
+
+  <!-- Drop Zone -->
+  <div class="drop-zone" id="dropZone">
+    <div class="drop-zone-icon">&#128196;</div>
+    <div class="drop-zone-text" id="dropText">Drag & drop a file here, or click to browse</div>
+    <div class="drop-zone-file" id="dropFile"></div>
+    <input type="file" id="fileInput">
+  </div>
+
+  <!-- Source Info -->
+  <div class="source-info" id="sourceInfo"></div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="control-group">
+      <label>Columns</label>
+      <input type="number" id="cols" value="100" min="1" max="500">
+    </div>
+    <div class="control-group">
+      <label>Rows</label>
+      <input type="number" id="rows" value="56" min="1" max="500">
+    </div>
+    <div class="control-group" id="fpsGroup" style="display:none">
+      <label>FPS (0 = auto)</label>
+      <input type="number" id="fps" value="0" min="0" max="120" placeholder="Auto-detect">
+    </div>
+    <div class="control-group" id="maxFramesGroup" style="display:none">
+      <label>Max Frames (0 = all)</label>
+      <input type="number" id="maxFrames" value="0" min="0" placeholder="All frames">
+    </div>
+  </div>
+
+  <!-- Lock Aspect Ratio -->
+  <div class="lock-row">
+    <label>
+      <input type="checkbox" id="lockAspect" checked>
+      <span class="lock-icon">&#128279;</span> Lock aspect ratio
+    </label>
+  </div>
+
+  <!-- Action Buttons -->
+  <div class="actions">
+    <button class="btn btn-secondary" id="previewBtn" onclick="doPreview()" disabled>Preview</button>
+    <button class="btn btn-primary" id="convertBtn" onclick="doConvert()" disabled>Convert & Download</button>
+  </div>
+
+  <!-- Status -->
+  <div class="status" id="status"></div>
+
+  <!-- Preview -->
+  <div class="preview-container" id="previewContainer">
+    <div class="preview-header">
+      <span>ASCII Preview</span>
+      <span id="previewInfo"></span>
+    </div>
+    <div class="preview-content">
+      <pre id="previewText"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentMode = "image";
+let selectedFile = null;
+
+// Source dimensions (pixels) — set when a file is loaded
+let sourceWidth = 0;
+let sourceHeight = 0;
+let aspectRatio = 0;  // width / height
+
+const dropZone = document.getElementById("dropZone");
+const fileInput = document.getElementById("fileInput");
+const dropText = document.getElementById("dropText");
+const dropFile = document.getElementById("dropFile");
+const previewBtn = document.getElementById("previewBtn");
+const convertBtn = document.getElementById("convertBtn");
+const statusEl = document.getElementById("status");
+const previewContainer = document.getElementById("previewContainer");
+const previewText = document.getElementById("previewText");
+const previewInfo = document.getElementById("previewInfo");
+const sourceInfoEl = document.getElementById("sourceInfo");
+const colsInput = document.getElementById("cols");
+const rowsInput = document.getElementById("rows");
+const lockAspect = document.getElementById("lockAspect");
+
+const IMAGE_ACCEPT = ".png,.jpg,.jpeg,.bmp,.tiff,.tif,.webp";
+const VIDEO_ACCEPT = ".mp4,.mov,.avi,.mkv,.webm,.gif";
+
+// --- Aspect Ratio Logic ---
+
+function setSourceDimensions(w, h, extraInfo) {
+  sourceWidth = w;
+  sourceHeight = h;
+  aspectRatio = w / h;
+
+  // Show source info
+  let info = `Source: <span>${w} x ${h}</span> px`;
+  if (extraInfo) info += ` &nbsp;|&nbsp; ${extraInfo}`;
+  sourceInfoEl.innerHTML = info;
+  sourceInfoEl.classList.add("show");
+
+  // Auto-adjust rows to match aspect ratio, keeping cols as-is
+  applyAspectToRows();
+}
+
+function clearSourceDimensions() {
+  sourceWidth = 0;
+  sourceHeight = 0;
+  aspectRatio = 0;
+  sourceInfoEl.classList.remove("show");
+}
+
+function applyAspectToRows() {
+  if (aspectRatio <= 0) return;
+  const cols = parseInt(colsInput.value) || 100;
+  const newRows = Math.max(1, Math.round(cols / aspectRatio));
+  rowsInput.value = newRows;
+}
+
+function applyAspectToCols() {
+  if (aspectRatio <= 0) return;
+  const rows = parseInt(rowsInput.value) || 60;
+  const newCols = Math.max(1, Math.round(rows * aspectRatio));
+  colsInput.value = newCols;
+}
+
+// When cols changes and lock is on → recalculate rows
+colsInput.addEventListener("input", () => {
+  if (lockAspect.checked && aspectRatio > 0) {
+    applyAspectToRows();
+  }
+});
+
+// When rows changes and lock is on → recalculate cols
+rowsInput.addEventListener("input", () => {
+  if (lockAspect.checked && aspectRatio > 0) {
+    applyAspectToCols();
+  }
+});
+
+// When lock is toggled ON → snap rows to current aspect ratio
+lockAspect.addEventListener("change", () => {
+  if (lockAspect.checked && aspectRatio > 0) {
+    applyAspectToRows();
+  }
+});
+
+// --- Detect image dimensions client-side ---
+
+function detectImageDimensions(file) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = () => {
+      resolve(null);
+      URL.revokeObjectURL(img.src);
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// --- Detect video dimensions via server ---
+
+async function detectVideoDimensions(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  try {
+    const resp = await fetch("/dimensions/video", { method: "POST", body: formData });
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+// --- Mode switching ---
+
+function switchMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.mode === mode));
+
+  const isVideo = mode === "video";
+  document.getElementById("fpsGroup").style.display = isVideo ? "" : "none";
+  document.getElementById("maxFramesGroup").style.display = isVideo ? "" : "none";
+  fileInput.accept = isVideo ? VIDEO_ACCEPT : IMAGE_ACCEPT;
+
+  // Reset
+  clearFile();
+  hideStatus();
+  previewContainer.classList.remove("show");
+
+  dropText.textContent = isVideo
+    ? "Drag & drop a video or GIF here, or click to browse"
+    : "Drag & drop an image here, or click to browse";
+}
+
+function clearFile() {
+  selectedFile = null;
+  dropFile.textContent = "";
+  dropZone.classList.remove("has-file");
+  previewBtn.disabled = true;
+  convertBtn.disabled = true;
+  fileInput.value = "";
+  clearSourceDimensions();
+}
+
+async function setFile(file) {
+  selectedFile = file;
+  dropFile.textContent = file.name + " (" + formatSize(file.size) + ")";
+  dropZone.classList.add("has-file");
+  previewBtn.disabled = false;
+  convertBtn.disabled = false;
+
+  // Detect dimensions
+  if (currentMode === "image") {
+    const dims = await detectImageDimensions(file);
+    if (dims) {
+      setSourceDimensions(dims.width, dims.height);
+    }
+  } else {
+    // Video — ask server
+    showStatusHTML('<span class="spinner"></span> Reading video info...', "info");
+    const info = await detectVideoDimensions(file);
+    hideStatus();
+    if (info && !info.error) {
+      const extra = `<span>${info.source_fps}</span> fps, <span>${info.total_frames}</span> frames`;
+      setSourceDimensions(info.width, info.height, extra);
+    }
+  }
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+// Drop zone events
+dropZone.addEventListener("click", () => {
+  fileInput.accept = currentMode === "video" ? VIDEO_ACCEPT : IMAGE_ACCEPT;
+  fileInput.click();
+});
+
+fileInput.addEventListener("change", (e) => {
+  if (e.target.files.length > 0) {
+    setFile(e.target.files[0]);
+    previewContainer.classList.remove("show");
+  }
+});
+
+dropZone.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  dropZone.classList.add("drag-over");
+});
+
+dropZone.addEventListener("dragleave", () => {
+  dropZone.classList.remove("drag-over");
+});
+
+dropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropZone.classList.remove("drag-over");
+  if (e.dataTransfer.files.length > 0) {
+    setFile(e.dataTransfer.files[0]);
+    previewContainer.classList.remove("show");
+  }
+});
+
+function showStatus(message, type) {
+  statusEl.textContent = message;
+  statusEl.className = "status show " + type;
+}
+
+function showStatusHTML(html, type) {
+  statusEl.innerHTML = html;
+  statusEl.className = "status show " + type;
+}
+
+function hideStatus() {
+  statusEl.className = "status";
+}
+
+function getParams() {
+  return {
+    cols: parseInt(colsInput.value) || 100,
+    rows: parseInt(rowsInput.value) || 60,
+    fps: parseInt(document.getElementById("fps").value) || 0,
+    maxFrames: parseInt(document.getElementById("maxFrames").value) || 0,
+  };
+}
+
+async function doPreview() {
+  if (!selectedFile) return;
+
+  const params = getParams();
+  const formData = new FormData();
+  formData.append("file", selectedFile);
+  formData.append("cols", params.cols);
+  formData.append("rows", params.rows);
+
+  const endpoint = currentMode === "video" ? "/preview/video" : "/preview";
+
+  previewBtn.disabled = true;
+  showStatusHTML('<span class="spinner"></span> Generating preview...', "info");
+
+  try {
+    const resp = await fetch(endpoint, { method: "POST", body: formData });
+    const data = await resp.json();
+
+    if (data.error) {
+      showStatus("Error: " + data.error, "error");
+      previewBtn.disabled = false;
+      return;
+    }
+
+    previewText.textContent = data.preview;
+    previewInfo.textContent = data.cols + "x" + data.rows;
+    previewContainer.classList.add("show");
+
+    // Fix vertical stretch — make character cells visually square
+    requestAnimationFrame(fixPreviewAspect);
+
+    hideStatus();
+  } catch (e) {
+    showStatus("Request failed: " + e.message, "error");
+  }
+
+  previewBtn.disabled = false;
+}
+
+async function doConvert() {
+  if (!selectedFile) return;
+
+  const params = getParams();
+  const formData = new FormData();
+  formData.append("file", selectedFile);
+  formData.append("cols", params.cols);
+  formData.append("rows", params.rows);
+
+  const endpoint = currentMode === "video" ? "/convert/video" : "/convert/image";
+
+  if (currentMode === "video") {
+    formData.append("fps", params.fps);
+    formData.append("max_frames", params.maxFrames);
+  }
+
+  convertBtn.disabled = true;
+  previewBtn.disabled = true;
+  showStatusHTML('<span class="spinner"></span> Converting...', "info");
+
+  try {
+    const resp = await fetch(endpoint, { method: "POST", body: formData });
+
+    if (!resp.ok) {
+      const data = await resp.json();
+      showStatus("Error: " + (data.error || "Unknown error"), "error");
+      convertBtn.disabled = false;
+      previewBtn.disabled = false;
+      return;
+    }
+
+    const blob = await resp.blob();
+    const filename = currentMode === "video" ? "ascii_sequence.blob" : "ascii_data.blob";
+
+    // Trigger download
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showStatus("Done! Downloaded " + filename + " (" + formatSize(blob.size) + ")", "success");
+  } catch (e) {
+    showStatus("Request failed: " + e.message, "error");
+  }
+
+  convertBtn.disabled = false;
+  previewBtn.disabled = false;
+}
+
+// --- Measure monospace character cell & fix preview aspect ratio ---
+
+function fixPreviewAspect() {
+  // Create an offscreen measurement element with the same font as the preview
+  const measure = document.createElement("span");
+  measure.style.fontFamily = getComputedStyle(previewText).fontFamily;
+  measure.style.fontSize = getComputedStyle(previewText).fontSize;
+  measure.style.lineHeight = getComputedStyle(previewText).lineHeight;
+  measure.style.letterSpacing = getComputedStyle(previewText).letterSpacing;
+  measure.style.position = "absolute";
+  measure.style.visibility = "hidden";
+  measure.style.whiteSpace = "pre";
+  measure.textContent = "M";  // single character
+  document.body.appendChild(measure);
+
+  const charWidth = measure.getBoundingClientRect().width;
+  const charHeight = measure.getBoundingClientRect().height;
+  document.body.removeChild(measure);
+
+  // We want each cell to look square, so scaleY = charWidth / charHeight
+  if (charHeight > 0 && charWidth > 0) {
+    const ratio = charWidth / charHeight;
+    previewText.style.transformOrigin = "top left";
+    previewText.style.transform = `scaleY(${ratio})`;
+
+    // Shrink the container to match the visually-scaled content
+    // so there's no empty gap below
+    const previewContent = previewText.parentElement;
+    const actualHeight = previewText.scrollHeight * ratio;
+    previewContent.style.height = actualHeight + 16 + "px"; // +16 for padding
+  }
+}
+
+// Initialize
+switchMode("image");
+</script>
+
+</body>
+</html>
