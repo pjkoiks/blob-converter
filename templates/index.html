@@ -241,7 +241,7 @@
   .preview-content {
     padding: 8px;
     overflow-x: auto;
-    max-height: 500px;
+    max-height: 70vh;
     overflow-y: auto;
   }
   .preview-content pre {
@@ -253,6 +253,57 @@
     white-space: pre;
     margin: 0;
   }
+
+  /* Playback controls */
+  .playback-controls { display: none; align-items: center; gap: 8px; }
+  .playback-controls.show { display: flex; }
+  .play-pause-btn {
+    background: none; border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); cursor: pointer; font-size: 0.85rem; padding: 2px 8px;
+    transition: all 0.2s; line-height: 1.2;
+  }
+  .play-pause-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .frame-counter { font-size: 0.8rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  /* Preview scale control */
+  .scale-control { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .scale-control label { font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+  .scale-slider { flex: 1; height: 4px; -webkit-appearance: none; appearance: none; background: #0f3460; border-radius: 2px; outline: none; cursor: pointer; }
+  .scale-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); border: none; cursor: pointer;
+  }
+  .scale-slider::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); border: none; cursor: pointer;
+  }
+  .scale-value {
+    width: 48px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); font-size: 0.8rem; text-align: center; padding: 2px 4px; outline: none;
+  }
+  .scale-value:focus { border-color: var(--accent); }
+
+  /* Timeline scrubber */
+  .timeline { display: none; padding: 6px 12px 10px; background: var(--surface); border-top: 1px solid var(--border); }
+  .timeline.show { display: block; }
+  .timeline input[type="range"] {
+    width: 100%; height: 6px; -webkit-appearance: none; appearance: none;
+    background: #0f3460; border-radius: 3px; outline: none; cursor: pointer;
+  }
+  .timeline input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent); border: none; cursor: pointer;
+  }
+  .timeline input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent); border: none; cursor: pointer;
+  }
+
+  /* Progress bar */
+  .progress-bar { height: 4px; background: #0f3460; border-radius: 2px; margin-bottom: 8px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--accent); transition: width 0.1s; }
 
   /* Spinner */
   .spinner {
@@ -333,10 +384,23 @@
   <div class="preview-container" id="previewContainer">
     <div class="preview-header">
       <span>ASCII Preview</span>
+      <span class="playback-controls" id="playbackControls">
+        <button class="play-pause-btn" id="playPauseBtn" onclick="togglePlayback()">&#9208;</button>
+        <span class="frame-counter" id="frameCounter"></span>
+      </span>
       <span id="previewInfo"></span>
+    </div>
+    <div class="scale-control">
+      <label>Scale</label>
+      <input type="range" class="scale-slider" id="scaleSlider" min="1" max="20" value="6" step="0.5">
+      <input type="number" class="scale-value" id="scaleValue" min="1" max="20" value="6" step="0.5">
+      <label>px</label>
     </div>
     <div class="preview-content">
       <pre id="previewText"></pre>
+    </div>
+    <div class="timeline" id="timeline">
+      <input type="range" id="timelineSlider" min="0" max="0" value="0">
     </div>
   </div>
 </div>
@@ -349,6 +413,13 @@ let selectedFile = null;
 let sourceWidth = 0;
 let sourceHeight = 0;
 let aspectRatio = 0;  // width / height
+
+// Animation playback state
+let animFrames = [];      // Array of ASCII text strings (one per frame)
+let animFps = 24;
+let animTimer = null;     // setInterval ID
+let animFrame = 0;        // current frame index
+let isPlaying = false;
 
 const dropZone = document.getElementById("dropZone");
 const fileInput = document.getElementById("fileInput");
@@ -364,6 +435,15 @@ const sourceInfoEl = document.getElementById("sourceInfo");
 const colsInput = document.getElementById("cols");
 const rowsInput = document.getElementById("rows");
 const lockAspect = document.getElementById("lockAspect");
+const playbackControls = document.getElementById("playbackControls");
+const playPauseBtn = document.getElementById("playPauseBtn");
+const frameCounter = document.getElementById("frameCounter");
+const timelineEl = document.getElementById("timeline");
+const timelineSlider = document.getElementById("timelineSlider");
+const scaleSlider = document.getElementById("scaleSlider");
+const scaleValueInput = document.getElementById("scaleValue");
+
+const ASCII_RAMP = " .:-=+*#%@";  // 10 chars, index 0-9
 
 const IMAGE_ACCEPT = ".png,.jpg,.jpeg,.bmp,.tiff,.tif,.webp";
 const VIDEO_ACCEPT = ".mp4,.mov,.avi,.mkv,.webm,.gif";
@@ -461,6 +541,7 @@ async function detectVideoDimensions(file) {
 // --- Mode switching ---
 
 function switchMode(mode) {
+  stopCurrentAnimation();
   currentMode = mode;
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.mode === mode));
 
@@ -480,6 +561,7 @@ function switchMode(mode) {
 }
 
 function clearFile() {
+  stopCurrentAnimation();
   selectedFile = null;
   dropFile.textContent = "";
   dropZone.classList.remove("has-file");
@@ -574,37 +656,206 @@ function getParams() {
   };
 }
 
+// --- Client-side video frame extraction (for animated preview) ---
+
+async function extractVideoFramesClient(file, cols, rows, fps, maxFrames, onProgress) {
+  const video = document.createElement("video");
+  video.muted = true;
+  video.preload = "auto";
+  const url = URL.createObjectURL(file);
+  video.src = url;
+
+  await new Promise((resolve, reject) => {
+    video.onloadeddata = resolve;
+    video.onerror = () => reject(new Error("Failed to load video"));
+  });
+
+  const duration = video.duration;
+  const actualFps = fps > 0 ? fps : 24;
+  let totalFrames = Math.floor(duration * actualFps);
+  if (maxFrames > 0 && totalFrames > maxFrames) totalFrames = maxFrames;
+  if (totalFrames > 500) totalFrames = 500;
+  if (totalFrames < 1) totalFrames = 1;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = cols;
+  canvas.height = rows;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
+  const frames = [];
+
+  for (let i = 0; i < totalFrames; i++) {
+    const time = i / actualFps;
+    if (time > duration) break;
+
+    video.currentTime = time;
+    await new Promise(r => { video.onseeked = r; });
+
+    ctx.drawImage(video, 0, 0, cols, rows);
+    const rgba = ctx.getImageData(0, 0, cols, rows).data;
+    const brightness = new Uint8Array(cols * rows);
+    for (let p = 0; p < cols * rows; p++) {
+      const r = rgba[p * 4], g = rgba[p * 4 + 1], b = rgba[p * 4 + 2];
+      brightness[p] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+    }
+    frames.push(brightness);
+
+    if (onProgress) onProgress(i + 1, totalFrames);
+    await new Promise(r => setTimeout(r, 0));
+  }
+
+  URL.revokeObjectURL(url);
+  return { frames, fps: actualFps };
+}
+
+function brightnessToAscii(brightness, cols, rows) {
+  const lines = [];
+  for (let row = 0; row < rows; row++) {
+    let line = "";
+    for (let col = 0; col < cols; col++) {
+      const b = brightness[row * cols + col];
+      const idx = Math.floor(b * 9 / 255);
+      line += ASCII_RAMP[idx];
+    }
+    lines.push(line);
+  }
+  return lines.join("\n");
+}
+
+// --- Animation playback ---
+
+function stopCurrentAnimation() {
+  if (animTimer) { clearInterval(animTimer); animTimer = null; }
+  isPlaying = false;
+  animFrames = [];
+  animFrame = 0;
+  playbackControls.classList.remove("show");
+  timelineEl.classList.remove("show");
+}
+
+function showFrame(index) {
+  animFrame = index;
+  previewText.textContent = animFrames[animFrame];
+  frameCounter.textContent = (animFrame + 1) + " / " + animFrames.length;
+  timelineSlider.value = animFrame;
+}
+
+function startAnimation() {
+  if (animFrames.length <= 1) return;
+  isPlaying = true;
+  playPauseBtn.innerHTML = "&#9208;"; // pause icon
+  animTimer = setInterval(() => {
+    showFrame((animFrame + 1) % animFrames.length);
+  }, 1000 / animFps);
+}
+
+function stopAnimation() {
+  if (animTimer) { clearInterval(animTimer); animTimer = null; }
+  isPlaying = false;
+  playPauseBtn.innerHTML = "&#9654;"; // play icon
+}
+
+function togglePlayback() {
+  if (isPlaying) stopAnimation();
+  else startAnimation();
+}
+
+// Timeline scrubber events
+timelineSlider.addEventListener("input", () => {
+  if (isPlaying) stopAnimation();
+  showFrame(parseInt(timelineSlider.value));
+});
+
+// Preview scale events
+function applyScale(val) {
+  const size = Math.max(1, Math.min(20, parseFloat(val) || 6));
+  scaleSlider.value = size;
+  scaleValueInput.value = size;
+  previewText.style.fontSize = size + "px";
+  requestAnimationFrame(fixPreviewAspect);
+}
+scaleSlider.addEventListener("input", () => applyScale(scaleSlider.value));
+scaleValueInput.addEventListener("input", () => applyScale(scaleValueInput.value));
+
+// --- Preview ---
+
 async function doPreview() {
   if (!selectedFile) return;
+  stopCurrentAnimation();
 
   const params = getParams();
-  const formData = new FormData();
-  formData.append("file", selectedFile);
-  formData.append("cols", params.cols);
-  formData.append("rows", params.rows);
-
-  const endpoint = currentMode === "video" ? "/preview/video" : "/preview";
+  const cols = Math.max(1, Math.min(params.cols, 500));
+  const rows = Math.max(1, Math.min(params.rows, 500));
 
   previewBtn.disabled = true;
   showStatusHTML('<span class="spinner"></span> Generating preview...', "info");
 
   try {
-    const resp = await fetch(endpoint, { method: "POST", body: formData });
-    const data = await resp.json();
+    if (currentMode === "video") {
+      // Extract all frames client-side for animated preview
+      const fps = params.fps > 0 ? params.fps : 24;
+      const maxFrames = params.maxFrames > 0 ? params.maxFrames : 0;
 
-    if (data.error) {
-      showStatus("Error: " + data.error, "error");
-      previewBtn.disabled = false;
-      return;
+      const { frames, fps: actualFps } = await extractVideoFramesClient(
+        selectedFile, cols, rows, fps, maxFrames,
+        (current, total) => {
+          const pct = Math.round(current / total * 100);
+          showStatusHTML(
+            `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>`
+            + `<span class="spinner"></span> Extracting frame ${current} / ${total}...`,
+            "info"
+          );
+        }
+      );
+
+      if (frames.length === 0) {
+        showStatus("Error: No frames extracted", "error");
+        previewBtn.disabled = false;
+        return;
+      }
+
+      // Convert all frames to ASCII text
+      animFrames = frames.map(b => brightnessToAscii(b, cols, rows));
+      animFps = actualFps;
+      animFrame = 0;
+
+      // Show first frame
+      previewInfo.textContent = cols + "x" + rows;
+      previewContainer.classList.add("show");
+      showFrame(0);
+      requestAnimationFrame(fixPreviewAspect);
+
+      // Show playback controls, timeline, and auto-play
+      if (animFrames.length > 1) {
+        playbackControls.classList.add("show");
+        timelineSlider.max = animFrames.length - 1;
+        timelineSlider.value = 0;
+        timelineEl.classList.add("show");
+        startAnimation();
+      }
+    } else {
+      // Single image — use server-side preview
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      formData.append("cols", cols);
+      formData.append("rows", rows);
+
+      const resp = await fetch("/preview", { method: "POST", body: formData });
+      const data = await resp.json();
+
+      if (data.error) {
+        showStatus("Error: " + data.error, "error");
+        previewBtn.disabled = false;
+        return;
+      }
+
+      previewText.textContent = data.preview;
+      previewInfo.textContent = data.cols + "x" + data.rows;
+      previewContainer.classList.add("show");
+      requestAnimationFrame(fixPreviewAspect);
     }
-
-    previewText.textContent = data.preview;
-    previewInfo.textContent = data.cols + "x" + data.rows;
-    previewContainer.classList.add("show");
-
-    // Fix vertical stretch — make character cells visually square
-    requestAnimationFrame(fixPreviewAspect);
-
     hideStatus();
   } catch (e) {
     showStatus("Request failed: " + e.message, "error");
