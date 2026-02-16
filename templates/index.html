@@ -42,6 +42,29 @@
     max-width: 800px;
   }
 
+  /* Footer */
+  .footer {
+    margin-top: 40px;
+    padding: 16px 0;
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    width: 100%;
+    max-width: 800px;
+  }
+  .footer a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .footer a:hover {
+    color: var(--accent);
+  }
+  .footer .author-name {
+    color: var(--text);
+    font-weight: 500;
+  }
+
   /* Tabs */
   .tabs {
     display: flex;
@@ -953,6 +976,10 @@ function fixPreviewAspect() {
 // Initialize
 switchMode("image");
 </script>
+
+<footer class="footer">
+  Made by <a href="https://www.behance.net/pkoik" target="_blank" rel="noopener"><span class="author-name">Sergey Vodyanov</span></a> &middot; 2026
+</footer>
 
 </body>
 </html>
