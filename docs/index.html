@@ -242,9 +242,13 @@
       <label>FPS (0 = auto ~24)</label>
       <input type="number" id="fps" value="0" min="0" max="120" placeholder="Auto ~24">
     </div>
-    <div class="control-group" id="maxFramesGroup" style="display:none">
-      <label>Max Frames (0 = all)</label>
-      <input type="number" id="maxFrames" value="0" min="0" placeholder="All frames">
+    <div class="control-group" id="startFrameGroup" style="display:none">
+      <label>Start Frame</label>
+      <input type="number" id="startFrame" value="0" min="0" placeholder="0">
+    </div>
+    <div class="control-group" id="endFrameGroup" style="display:none">
+      <label>End Frame (0 = last)</label>
+      <input type="number" id="endFrame" value="0" min="0" placeholder="Last">
     </div>
   </div>
 
@@ -256,7 +260,6 @@
   </div>
 
   <div class="actions">
-    <button class="btn btn-secondary" id="previewBtn" onclick="doPreview()" disabled>Preview</button>
     <button class="btn btn-primary" id="convertBtn" onclick="doConvert()" disabled>Convert & Download</button>
   </div>
 
@@ -357,10 +360,12 @@ function extractVideoFrame(file, cols, rows, timeSec) {
 }
 
 /**
- * Extract all frames from a video. Returns {frames: Uint8Array[], fps: number}.
+ * Extract frames from a video. Returns {frames: Uint8Array[], fps: number}.
+ * startFrame/endFrame are in source frame indices (at source FPS, default ~24).
+ * endFrame=0 means last frame. Output is sampled at the given fps.
  * onProgress(current, total) is called after each frame for UI updates.
  */
-async function extractVideoFrames(file, cols, rows, fps, maxFrames, onProgress) {
+async function extractVideoFrames(file, cols, rows, fps, startFrame, endFrame, onProgress) {
   const video = document.createElement("video");
   video.muted = true;
   video.preload = "auto";
@@ -373,9 +378,16 @@ async function extractVideoFrames(file, cols, rows, fps, maxFrames, onProgress) 
   });
 
   const duration = video.duration;
-  const actualFps = fps > 0 ? fps : 24;
-  let totalFrames = Math.floor(duration * actualFps);
-  if (maxFrames > 0 && totalFrames > maxFrames) totalFrames = maxFrames;
+  const sourceFps = 24; // assumed source FPS (browser can't detect native FPS)
+  const outputFps = fps > 0 ? fps : 24;
+
+  // Convert source frame indices to time range
+  const startTime = Math.max(0, startFrame) / sourceFps;
+  const endTime = (endFrame > 0) ? Math.min(endFrame / sourceFps, duration) : duration;
+  const clipDuration = Math.max(0, endTime - startTime);
+
+  // Sample at output FPS within the time range
+  let totalFrames = Math.floor(clipDuration * outputFps);
   if (totalFrames > 500) totalFrames = 500;
   if (totalFrames < 1) totalFrames = 1;
 
@@ -389,7 +401,7 @@ async function extractVideoFrames(file, cols, rows, fps, maxFrames, onProgress) 
   const frames = [];
 
   for (let i = 0; i < totalFrames; i++) {
-    const time = i / actualFps;
+    const time = startTime + i / outputFps;
     if (time > duration) break;
 
     video.currentTime = time;
@@ -410,7 +422,7 @@ async function extractVideoFrames(file, cols, rows, fps, maxFrames, onProgress) 
   }
 
   URL.revokeObjectURL(url);
-  return { frames, fps: actualFps };
+  return { frames, fps: outputFps };
 }
 
 /**
@@ -509,11 +521,14 @@ let animTimer = null;     // setInterval ID
 let animFrame = 0;        // current frame index
 let isPlaying = false;
 
+// Auto-preview debounce
+let previewDebounceTimer = null;
+let previewInProgress = false;
+
 const dropZone = document.getElementById("dropZone");
 const fileInput = document.getElementById("fileInput");
 const dropText = document.getElementById("dropText");
 const dropFile = document.getElementById("dropFile");
-const previewBtn = document.getElementById("previewBtn");
 const convertBtn = document.getElementById("convertBtn");
 const statusEl = document.getElementById("status");
 const previewContainer = document.getElementById("previewContainer");
@@ -562,9 +577,30 @@ function applyAspectToCols() {
   colsInput.value = Math.max(1, Math.round(rows * aspectRatio));
 }
 
-colsInput.addEventListener("input", () => { if (lockAspect.checked && aspectRatio > 0) applyAspectToRows(); });
-rowsInput.addEventListener("input", () => { if (lockAspect.checked && aspectRatio > 0) applyAspectToCols(); });
-lockAspect.addEventListener("change", () => { if (lockAspect.checked && aspectRatio > 0) applyAspectToRows(); });
+colsInput.addEventListener("input", () => { if (lockAspect.checked && aspectRatio > 0) applyAspectToRows(); schedulePreview(); });
+rowsInput.addEventListener("input", () => { if (lockAspect.checked && aspectRatio > 0) applyAspectToCols(); schedulePreview(); });
+lockAspect.addEventListener("change", () => { if (lockAspect.checked && aspectRatio > 0) applyAspectToRows(); schedulePreview(); });
+document.getElementById("fps").addEventListener("input", () => schedulePreview());
+document.getElementById("startFrame").addEventListener("input", () => schedulePreview());
+document.getElementById("endFrame").addEventListener("input", () => schedulePreview());
+
+// --- Auto-preview with debounce ---
+
+function schedulePreview(delay) {
+  if (previewDebounceTimer) clearTimeout(previewDebounceTimer);
+  delay = delay !== undefined ? delay : 300;
+  previewDebounceTimer = setTimeout(() => { autoPreview(); }, delay);
+}
+
+async function autoPreview() {
+  if (!selectedFile || previewInProgress) return;
+  previewInProgress = true;
+  try {
+    await doPreview();
+  } finally {
+    previewInProgress = false;
+  }
+}
 
 // --- Image dimensions (client-side) ---
 
@@ -585,7 +621,8 @@ function switchMode(mode) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.mode === mode));
   const isVideo = mode === "video";
   document.getElementById("fpsGroup").style.display = isVideo ? "" : "none";
-  document.getElementById("maxFramesGroup").style.display = isVideo ? "" : "none";
+  document.getElementById("startFrameGroup").style.display = isVideo ? "" : "none";
+  document.getElementById("endFrameGroup").style.display = isVideo ? "" : "none";
   fileInput.accept = isVideo ? VIDEO_ACCEPT : IMAGE_ACCEPT;
   clearFile();
   hideStatus();
@@ -600,7 +637,6 @@ function clearFile() {
   selectedFile = null;
   dropFile.textContent = "";
   dropZone.classList.remove("has-file");
-  previewBtn.disabled = true;
   convertBtn.disabled = true;
   fileInput.value = "";
   clearSourceDimensions();
@@ -610,7 +646,6 @@ async function setFile(file) {
   selectedFile = file;
   dropFile.textContent = file.name + " (" + formatSize(file.size) + ")";
   dropZone.classList.add("has-file");
-  previewBtn.disabled = false;
   convertBtn.disabled = false;
 
   if (currentMode === "image") {
@@ -629,6 +664,9 @@ async function setFile(file) {
       hideStatus();
     }
   }
+
+  // Auto-preview immediately after file is loaded
+  schedulePreview(50);
 }
 
 function formatSize(bytes) {
@@ -664,7 +702,8 @@ function getParams() {
     cols: parseInt(colsInput.value) || 100,
     rows: parseInt(rowsInput.value) || 60,
     fps: parseInt(document.getElementById("fps").value) || 0,
-    maxFrames: parseInt(document.getElementById("maxFrames").value) || 0,
+    startFrame: parseInt(document.getElementById("startFrame").value) || 0,
+    endFrame: parseInt(document.getElementById("endFrame").value) || 0,
   };
 }
 
@@ -732,17 +771,13 @@ async function doPreview() {
   const cols = Math.max(1, Math.min(params.cols, 500));
   const rows = Math.max(1, Math.min(params.rows, 500));
 
-  previewBtn.disabled = true;
-  showStatusHTML('<span class="spinner"></span> Generating preview...', "info");
-
   try {
     if (currentMode === "video") {
-      // Extract all frames for animated preview
+      // Extract frames for animated preview
       const fps = params.fps > 0 ? params.fps : 24;
-      const maxFrames = params.maxFrames > 0 ? params.maxFrames : 0;
 
       const { frames, fps: actualFps } = await extractVideoFrames(
-        selectedFile, cols, rows, fps, maxFrames,
+        selectedFile, cols, rows, fps, params.startFrame, params.endFrame,
         (current, total) => {
           const pct = Math.round(current / total * 100);
           showStatusHTML(
@@ -755,7 +790,6 @@ async function doPreview() {
 
       if (frames.length === 0) {
         showStatus("Error: No frames extracted", "error");
-        previewBtn.disabled = false;
         return;
       }
 
@@ -790,7 +824,6 @@ async function doPreview() {
   } catch (e) {
     showStatus("Error: " + e.message, "error");
   }
-  previewBtn.disabled = false;
 }
 
 // --- Convert & Download ---
@@ -802,7 +835,6 @@ async function doConvert() {
   const rows = Math.max(1, Math.min(params.rows, 500));
 
   convertBtn.disabled = true;
-  previewBtn.disabled = true;
 
   try {
     let blob, filename;
@@ -814,10 +846,9 @@ async function doConvert() {
       filename = "ascii_data.blob";
     } else {
       const fps = params.fps > 0 ? params.fps : 24;
-      const maxFrames = params.maxFrames > 0 ? params.maxFrames : 0;
 
       const { frames, fps: actualFps } = await extractVideoFrames(
-        selectedFile, cols, rows, fps, maxFrames,
+        selectedFile, cols, rows, fps, params.startFrame, params.endFrame,
         (current, total) => {
           const pct = Math.round(current / total * 100);
           showStatusHTML(
@@ -845,7 +876,6 @@ async function doConvert() {
   }
 
   convertBtn.disabled = false;
-  previewBtn.disabled = false;
 }
 
 // --- Preview aspect ratio fix ---

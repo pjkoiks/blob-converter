@@ -119,7 +119,8 @@ def convert_video():
     cols = request.form.get("cols", 100, type=int)
     rows = request.form.get("rows", 60, type=int)
     fps = request.form.get("fps", 0, type=int)
-    max_frames = request.form.get("max_frames", 0, type=int)
+    start_frame = request.form.get("start_frame", 0, type=int)
+    end_frame = request.form.get("end_frame", 0, type=int)
 
     cols = max(1, min(cols, 500))
     rows = max(1, min(rows, 500))
@@ -132,15 +133,26 @@ def convert_video():
         output_path = os.path.join(tmp_dir, "ascii_sequence.blob")
         file.save(input_path)
 
-        frames, source_fps = extract_frames_from_video(
-            input_path,
-            max_frames=max_frames if max_frames > 0 else None,
-        )
+        frames, source_fps = extract_frames_from_video(input_path)
 
         if not frames:
             return jsonify(error="No frames extracted from video"), 400
 
+        # Apply start/end frame range (indices are at source FPS)
+        start = max(0, start_frame)
+        end = end_frame if end_frame > 0 else len(frames)
+        end = min(end, len(frames))
+        if start < end:
+            frames = frames[start:end]
+        if not frames:
+            return jsonify(error="No frames in selected range"), 400
+
         actual_fps = fps if fps > 0 else max(1, int(round(source_fps)))
+
+        # Downsample if output FPS is lower than source FPS
+        if source_fps > 0 and actual_fps < source_fps:
+            step = source_fps / actual_fps
+            frames = [frames[int(i * step)] for i in range(int(len(frames) / step)) if int(i * step) < len(frames)]
 
         convert_sequence_to_blob(frames, cols, rows, actual_fps, output_path)
 
